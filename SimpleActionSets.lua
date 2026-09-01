@@ -57,6 +57,18 @@ function SAS_Store()
 	if not SAS_Saved[PlrName]["s"] then
 		SAS_Saved[PlrName]["s"] = {};
 	end
+	-- Applying a set should mean applying the WHOLE set, including the bars
+	-- and buttons it says are empty -- otherwise "empty" silently means
+	-- "leave whatever's already there," which surprised a set built to
+	-- clear a bar entirely. Only players who never opened Options and
+	-- touched these two checkboxes get the new default; an explicit prior
+	-- choice (true or false) is left alone.
+	if SAS_Saved[PlrName]["EmptyBars"] == nil then
+		SAS_Saved[PlrName]["EmptyBars"] = true;
+	end
+	if SAS_Saved[PlrName]["NoEmptyButtons"] == nil then
+		SAS_Saved[PlrName]["NoEmptyButtons"] = false;
+	end
 	return SAS_Saved[PlrName];
 end
 
