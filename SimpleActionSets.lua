@@ -24,6 +24,42 @@ SAS_OFFSET_TEMP = nil;
 local PlrName;
 local PlrClass; -- not used yet
 
+-- Character key + saved-variables store, derived on demand.
+--
+-- The API hooks in SimpleActionSets_Hooks.lua are installed at file scope, so
+-- they are live from the moment the addon loads -- before ADDON_LOADED, and
+-- long before VARIABLES_LOADED assigns PlrName. Anything they reach that did
+-- SAS_Saved[PlrName][...] was indexing SAS_Saved[nil], which is an error that
+-- kills the handler it happened in and, when that handler is the login one,
+-- leaves the addon broken for the rest of the session. Another addon touching
+-- an action button during its own init is enough to trigger it -- which is
+-- exactly what a controller UI does on a Steam Deck.
+--
+-- Returns nil only when the player is genuinely not known yet; callers treat
+-- that as "no store, do nothing" rather than erroring.
+function SAS_Store()
+	if not PlrName then
+		local name = UnitName("player");
+		if not name or name == "" or name == UKNOWNBEING then
+			return nil;
+		end
+		PlrName = name .. " - " .. (GetCVar("realmName") or "");
+		if (SASFrame) then
+			SASFrame.PlrName = PlrName;
+		end
+	end
+	if not SAS_Saved then
+		SAS_Saved = {};
+	end
+	if not SAS_Saved[PlrName] then
+		SAS_Saved[PlrName] = {};
+	end
+	if not SAS_Saved[PlrName]["s"] then
+		SAS_Saved[PlrName]["s"] = {};
+	end
+	return SAS_Saved[PlrName];
+end
+
 -- Fix for barmods that badly hook PickupAction instead of doing it in external functions or xml
 local barmods = { ctmod = { "CT_HotbarButtons_Locked" }, nurfed = { "NURFED_LOCKALL", 0 } };
 
@@ -1359,8 +1395,9 @@ function SASPrint(msg)
 end
 
 function SASDebug(msg)
-	-- Print when debug is turned on
-	if (SAS_Saved["debug"]) then
+	-- Print when debug is turned on. Guarded: this is called from the API
+	-- hooks, which are live before the saved variables are loaded.
+	if (SAS_Saved and SAS_Saved["debug"]) then
 		SASPrint("<|wDEBUG|r> " .. msg);
 	end
 end
@@ -1595,6 +1632,10 @@ function SAS_FindMacro(name, texture, macro)
 end
 
 function SAS_GetActionInfoNoSuperWoW(id, quick)
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	-- Scans an action button to attempt to determine if it's a spell, macro, or item
 	SASToolTip:SetAction(id);
 	local name = SASToolTipTextLeft1:GetText();
@@ -1647,6 +1688,10 @@ function SAS_GetActionInfoNoSuperWoW(id, quick)
 end
 
 function SAS_GetActionInfo(id, quick)
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	-- Scans an action button to attempt to determine if it's a spell, macro, or item
 	local name, rank, texture, macro, link
 	texture = GetActionTexture(id);
@@ -1788,6 +1833,10 @@ function SAS_BarHasActions(bar, set)
 end
 
 function SAS_ClearSlot(id)
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	-- Clear an action slot
 	if (HasAction(id) and not SAS_Saved[PlrName]["NoEmptyButtons"]) then
 		PickupAction(id);
@@ -1796,6 +1845,10 @@ function SAS_ClearSlot(id)
 end
 
 function SAS_MissingItem(id, itemInfo)
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	-- Add to list of items to place on the bar when available.
 	if (id and itemInfo) then
 		if (not SAS_Saved[PlrName]["MissingItems"]) then
@@ -1822,6 +1875,10 @@ function SAS_MissingItem(id, itemInfo)
 end
 
 function SAS_ForceUpdate(id)
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	if (id and not SAS_original_HasAction(id)) then
 		SASDebug("force update on " .. id);
 		SAS_ToggleBarLocks();
@@ -1842,6 +1899,10 @@ function SAS_ForceUpdate(id)
 end
 
 function SAS_FindMissingItems()
+	-- Reachable from the API hooks, which are live before the saved
+	-- variables load; SAS_Store() derives the character key on demand and
+	-- returns nil only when the player is genuinely not known yet.
+	if not SAS_Store() then return; end
 	-- Readd missing items to action bar
 	if (not SAS_Saved[PlrName]["MissingItems"]) then
 		return ;
