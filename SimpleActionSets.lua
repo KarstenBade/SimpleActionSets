@@ -736,7 +736,9 @@ function SASActionButton_OnClick(button)
 				-- Spell is passive, don't add to set
 				UIErrorsFrame:AddMessage(ERR_PASSIVE_ABILITY, 1.0, 0.1, 0.1, 1.0, UIERRORS_HOLD_TIME);
 			else
-				if (SAS_Temp[bar] and not SAS_Temp[bar][id] == SAS_SavedPickup) then
+				-- `not X == Y` parses as `(not X) == Y`, which is always false,
+				-- so the saved action was never kept for the swap-back below.
+				if (SAS_Temp[bar] and SAS_Temp[bar][id] ~= SAS_SavedPickup) then
 					LocalSavedAction = SAS_Temp[bar][id];
 				end
 				SAS_Temp[bar][id] = SAS_SavedPickup;
@@ -1792,7 +1794,11 @@ function SAS_SetTooltip(bar, id)
 				end
 			elseif (highest) then
 				local spellName, spellRank = GetSpellName(highest, BOOKTYPE_SPELL);
-				local string = string.gsub(SAS_TEXT_TOOLTIP_NOSPELLRANK, "%%r", rank);
+				-- `rank` is nil here whenever the saved spell had no rank, and
+				-- gsub will not take nil. (The result was never used either;
+				-- it also shadowed the string library for the rest of the
+				-- block.)
+				local rankText = string.gsub(SAS_TEXT_TOOLTIP_NOSPELLRANK, "%%r", rank or "?");
 				TooltipReturn = GameTooltip:SetSpell(highest, BOOKTYPE_SPELL);
 				if (spellRank) then
 					GameTooltipTextRight1:SetText(spellRank);
@@ -2189,6 +2195,11 @@ function SASBackUp()
 end
 
 function SAS_RestoreBackUp()
+	-- SAS_SwapSet(set, player). The backup is stored transposed --
+	-- SAS_Saved["BackUp"]["s"][PlrName] -- so passing the arguments the wrong
+	-- way round happened to resolve to the same table. It also meant the
+	-- current-set label was never updated afterwards. Spelled out so the next
+	-- reader is not misled by the coincidence.
 	SAS_SwapSet(PlrName, "BackUp");
 end
 
