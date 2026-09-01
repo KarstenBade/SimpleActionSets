@@ -26,17 +26,29 @@ each device overwrites the other's layout. This addon already had the two halves
 fix that (snapshot and restore, plus Turtle's Goblin Brainwashing Device dual-spec hooks);
 what it lacked was doing it automatically and without erroring.
 
-The work here is, in order:
+The work here, in order:
 
 1. Crash fixes — a load-order race that makes the API hooks index a nil table before
    `VARIABLES_LOADED`, a nil concatenation on the login path, and a gossip hook that could
    swallow clicks on the Brainwashing Device (upstream issue #4).
 2. Performance — the spellbook was scanned linearly twice per occupied slot, so applying a
    set cost tens of thousands of `GetSpellName` calls in a single frame.
-3. Per-device action bar profiles, restored silently at login, with the first login on a
-   device only ever *capturing* what is already there.
-4. Dual spec that waits for the server's own "Specialization Activated" message instead of a
-   fixed one-second timer.
+3. New-install defaults: applying a set applies its empty bars and buttons too (clears them)
+   instead of silently skipping them, which is what "empty" meant before.
+4. The active set stays in sync with the real bars automatically — dragging a spell onto a
+   bar (or off it) updates and saves the set that's currently applied, no manual Save As.
+5. **Spec-aware silent login restore**, replacing the old raw-backup "Auto restore actions"
+   (whole-layout snapshot, no notion of which set or spec, confirm popup on any mismatch).
+   At login this targets a *named* set and, when the character's talents identify one,
+   prefers the set for the CURRENT spec over whatever this device merely had active last —
+   the fix for logging out on the PC in one spec, respeccing on a Deck, and coming back to
+   the PC without the stale spec-1 set silently clearing every spec-2-only spell. Gated on
+   the spellbook being populated first: a silent restore has no confirm click to buy time the
+   way the popup it replaces did.
+
+Not yet done: the Brainwashing Device's own spec-switch delay (`SetDelayedChange`) is still a
+fixed ~1 second wait for the spell burst to land, not the server's own "Specialization
+Activated" message. Login restore (item 5) is unrelated to and does not fix this.
 
 Fixes that are not specific to this realm are offered back upstream; each commit message
 names the upstream issue or PR it corresponds to.
