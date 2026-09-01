@@ -144,6 +144,47 @@ function UpdateInventoryDebounced()
 	end
 end
 
+-- Debounce for keeping the active set in sync with the real action bars.
+-- PickupAction and PlaceAction (SimpleActionSets_Hooks.lua) are the only two
+-- hooks that change what is actually IN a slot -- casting (UseAction) does
+-- not, so it does not touch this. A drag can fire several of those in one
+-- gesture (pick up, then place, or pick up and never place -- a clear), so
+-- this waits for them to stop before doing one full rescan-and-save, the
+-- same way UpdateInventoryDebounced above waits out a burst of bag events.
+local liveEditTimer = CreateFrame("Frame")
+local liveEditElapsed = 0
+function SAS_SyncActiveSetDebounced()
+	liveEditElapsed = liveEditElapsed + arg1
+	if liveEditElapsed > 0.3 then
+		liveEditElapsed = 0
+		this:SetScript("OnUpdate", nil)
+		-- Re-check rather than trust the caller: the set can have changed (or
+		-- the editor opened) in the time this was waiting to fire.
+		--
+		-- Writes the set directly rather than going through SAS_SaveSet: that
+		-- also refreshes the Sets editor's dropdown, which is pointless work
+		-- for a frame this branch has already confirmed is closed, and the
+		-- editor loads fresh from SAS_Saved the next time it IS opened
+		-- anyway (SASActions_OnShow -> SASActions_Load).
+		local set = SAS_GetCurrentSet();
+		if (set and SASMain and not SASMain:IsVisible()) then
+			SAS_Saved[PlrName]["s"][set] = SAS_CopyTable(SAS_IterateActions());
+		end
+	end
+end
+
+-- Called from the hooks on every genuine (not SAS_SwappingSet) bar edit. Only
+-- arms the timer when there is something to sync to -- a named set active,
+-- and not the Sets editor, which works against its own SAS_Temp buffer and
+-- already has its own explicit Save. `SASMain` guarded rather than assumed:
+-- the hooks are live before this addon's own XML has run (see SAS_Store's
+-- comment above), so a hook CAN in theory be called that early.
+function SAS_NoteLiveActionChange()
+	if (SAS_GetCurrentSet() and SASMain and not SASMain:IsVisible()) then
+		liveEditTimer:SetScript("OnUpdate", SAS_SyncActiveSetDebounced)
+	end
+end
+
 function SASFrame_Event()
 	if event == "ADDON_LOADED" and arg1 == "SimpleActionSets" then
 		if not SAS_Saved then

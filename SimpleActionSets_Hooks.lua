@@ -19,6 +19,13 @@ function SAS_PickupAction(slot)
 		SAS_ForceUpdate( slot );
 	end
 	SAS_original_PickupAction(slot);
+	-- A pickup alone already empties the slot in the real game, so it counts
+	-- as a live edit on its own (this is what lets a plain drag-off-and-drop
+	-- -- a removal, not just an addition -- reach the active set: nothing
+	-- else fires for "and never placed back").
+	if ( not SAS_SwappingSet ) then
+		SAS_NoteLiveActionChange();
+	end
 end
 PickupAction = SAS_PickupAction;
 
@@ -34,6 +41,9 @@ function SAS_PlaceAction(slot)
 		end
 	end
 	SAS_original_PlaceAction(slot);
+	if ( not SAS_SwappingSet ) then
+		SAS_NoteLiveActionChange();
+	end
 end
 PlaceAction = SAS_PlaceAction;
 
