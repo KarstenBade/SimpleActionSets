@@ -1175,34 +1175,6 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 									</OnClick>
 								</Scripts>
 							</CheckButton>
-							<CheckButton name="$parentAutoRestore" inherits="OptionsCheckButtonTemplate">
-								<Anchors>
-									<Anchor point="TOP" relativeTo="$parentFakeItemTooltips" relativePoint="BOTTOM">
-										<Offset>
-											<AbsDimension x="0" y="10"/>
-										</Offset>
-									</Anchor>
-								</Anchors>
-								<Scripts>
-									<OnClick>
-										SASOptions_General_AutoRestore();
-									</OnClick>
-								</Scripts>
-							</CheckButton>
-							<CheckButton name="$parentAutoRestoreWarning" inherits="OptionsCheckButtonTemplate">
-								<Anchors>
-									<Anchor point="TOP" relativeTo="$parentAutoRestore" relativePoint="BOTTOM">
-										<Offset>
-											<AbsDimension x="10" y="10"/>
-										</Offset>
-									</Anchor>
-								</Anchors>
-								<Scripts>
-									<OnClick>
-										SASOptions_General_AutoRestoreWarnings();
-									</OnClick>
-								</Scripts>
-							</CheckButton>
 						</Frames>
 					</Frame>
 				</Frames>

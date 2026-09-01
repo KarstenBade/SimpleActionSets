@@ -185,6 +185,113 @@ function SAS_NoteLiveActionChange()
 	end
 end
 
+-------------------------------------------------
+-- Login restore: spec-aware, silent, per-device --
+-------------------------------------------------
+-- Replaces the old raw-backup "Auto restore actions": that snapshotted the
+-- whole 120-slot layout at every logout with no notion of WHICH set it was,
+-- and asked for confirmation on mismatch. This restores a named set instead,
+-- and picks the right one for the character's CURRENT talent spec rather
+-- than blindly trusting what this device had active last time -- which
+-- would be wrong if the spec was changed from a different device in
+-- between (each device's SAS_Saved is local to it; the server's action
+-- bars and the character's talents are not).
+
+-- Every time the Brainwashing Device's gossip page is open, GOSSIP_SHOW
+-- already computes the live talent-point fingerprint to relabel the
+-- "Activate" buttons with "- ACTIVE TALENTS". Persist it per spec slot, on
+-- THIS device, so a later login can recognise the spec without the gossip
+-- page open.
+function SAS_RecordFingerprint(specN, t1, t2, t3)
+	if not SAS_Store() then return; end
+	if not SAS_Saved[PlrName]["Fingerprints"] then
+		SAS_Saved[PlrName]["Fingerprints"] = {};
+	end
+	SAS_Saved[PlrName]["Fingerprints"][specN] = { t1, t2, t3 };
+end
+
+-- The spec slot whose cached fingerprint matches the character's CURRENT
+-- talents, or nil if there is no cached fingerprint yet, or if two spec
+-- slots happen to share one (rare, but a wrong guess costs the whole
+-- layout, so this refuses rather than picks either).
+function SAS_FindSpecByFingerprint()
+	if not SAS_Store() then return nil; end
+	local fp = SAS_Saved[PlrName]["Fingerprints"];
+	if not fp then return nil; end
+	local _, _, t1 = GetTalentTabInfo(1);
+	local _, _, t2 = GetTalentTabInfo(2);
+	local _, _, t3 = GetTalentTabInfo(3);
+	t1, t2, t3 = tostring(t1), tostring(t2), tostring(t3);
+	local match;
+	for n, v in fp do
+		if v[1] == t1 and v[2] == t2 and v[3] == t3 then
+			if match then
+				return nil;
+			end
+			match = n;
+		end
+	end
+	return match;
+end
+
+-- The set to silently restore at login: the spec-matched Brainwasher set if
+-- this device has one for the character's current spec, else this device's
+-- plain last-active set, else nothing.
+function SAS_LoginRestoreTarget()
+	local specN = SAS_FindSpecByFingerprint();
+	if specN then
+		local set = "Brainwasher" .. specN;
+		if SAS_SetExists(set) then
+			return set;
+		end
+	end
+	local current = SAS_GetCurrentSet();
+	if current and SAS_SetExists(current) then
+		return current;
+	end
+	return nil;
+end
+
+function SAS_LoginRestore()
+	if not SAS_Store() then return; end
+	local target = SAS_LoginRestoreTarget();
+	if not target then return; end
+	-- strict=1: without it, SAS_CompareSet only notices live having
+	-- something the target does NOT (see its own doc comment) -- exactly
+	-- backwards for "does the target want something live is missing",
+	-- which is the whole point of a restore.
+	if SAS_CompareSet(SAS_IterateActions(1), SAS_Saved[PlrName]["s"][target], 1) then
+		SAS_SwapSet(target);
+		SASPrint(SAS_TEXT_RESTORED .. target);
+	else
+		-- Already matches; just make sure the bookkeeping agrees, in case the
+		-- spec-matched set differs in name from what CurrentSet still said.
+		SAS_SetCurrentSet(target);
+	end
+end
+
+-- Waits for the spellbook before running the restore. A silent restore has
+-- no confirm click to buy time the way the popup it replaces did: applying
+-- before the spellbook is populated would resolve every spell as "not
+-- found" and clear the whole bar (SAS_SwapSet's normal, correct behaviour
+-- for a spell it truly cannot find -- catastrophic here only because
+-- nothing can be found yet).
+local loginRestoreTimer = CreateFrame("Frame")
+local loginRestoreElapsed = 0
+local loginRestoreArmed = false
+function SAS_WaitForLoginRestore()
+	loginRestoreElapsed = loginRestoreElapsed + arg1;
+	if loginRestoreElapsed < 1 then
+		return;
+	end
+	loginRestoreElapsed = 0;
+	if not GetSpellName(1, BOOKTYPE_SPELL) then
+		return; -- spellbook still empty, keep waiting
+	end
+	this:SetScript("OnUpdate", nil);
+	SAS_LoginRestore();
+end
+
 function SASFrame_Event()
 	if event == "ADDON_LOADED" and arg1 == "SimpleActionSets" then
 		if not SAS_Saved then
@@ -199,6 +306,10 @@ function SASFrame_Event()
 		SAS_InvalidateSpellCache();
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		this:SetOwner(WorldFrame, "ANCHOR_NONE")
+		if not loginRestoreArmed then
+			loginRestoreArmed = true;
+			loginRestoreTimer:SetScript("OnUpdate", SAS_WaitForLoginRestore);
+		end
 	elseif event == "GOSSIP_SHOW" and GossipFrameNpcNameText:GetText() == "Goblin Brainwashing Device" then
 
 		local current_wash = SAS_GetCurrentSet()
@@ -229,6 +340,9 @@ function SASFrame_Event()
 				end
 
 				local _, _, load_spec, mod, ta1, ta2, ta3 = string.find(titleButton:GetText(), "Activate (%d+)(..) Specialization %((%d+)/(%d+)/(%d+)%)")
+				if load_spec then
+					SAS_RecordFingerprint(tonumber(load_spec), ta1, ta2, ta3)
+				end
 				if ta1 and ta1 == tostring(t1) and ta2 == tostring(t2) and ta3 == tostring(t3) then
 					titleButton:SetText(format("Activate %d%s Specialization (%s/%s/%s) - ACTIVE TALENTS", load_spec, mod, t1, t2, t3))
 					GossipResize(titleButton)
@@ -934,12 +1048,6 @@ function SASOptions_OnShow()
 	SASOptionsGeneralFakeItemTooltips:SetChecked(not SAS_Saved[PlrName]["HideFakeItemTooltips"]);
 	SASOptionsGeneralFakeItemTooltipsText:SetText(SAS_TEXT_OPTIONS_GENERAL_FAKEITEMTOOLTIPS);
 	SASOptionsGeneralFakeItemTooltips.tooltipText = SAS_TEXT_OPTIONS_GENERAL_FAKEITEMTOOLTIPS_TOOLTIP;
-	SASOptionsGeneralAutoRestore:SetChecked(not SAS_Saved[PlrName]["AutoRestore"]);
-	SASOptionsGeneralAutoRestoreText:SetText(SAS_TEXT_OPTIONS_GENERAL_AUTORESTORE);
-	SASOptionsGeneralAutoRestore.tooltipText = SAS_TEXT_OPTIONS_GENERAL_AUTORESTORE_TOOLTIP;
-	SASOptionsGeneralAutoRestoreWarning:SetChecked(not SAS_Saved[PlrName]["NoAutoRestoreWarnings"]);
-	SASOptionsGeneralAutoRestoreWarningText:SetText(SAS_TEXT_OPTIONS_GENERAL_AUTORESTOREWARN);
-	SASOptionsGeneralAutoRestoreWarning.tooltipText = SAS_TEXT_OPTIONS_GENERAL_AUTORESTOREWARN_TOOLTIP;
 	SAS_POS_TEMP = SAS_POS;
 	SAS_OFFSET_TEMP = SAS_OFFSET;
 end
@@ -960,14 +1068,6 @@ end
 
 function SASOptions_General_FakeItemTooltips()
 	SAS_Saved[PlrName]["HideFakeItemTooltips"] = not this:GetChecked();
-end
-
-function SASOptions_General_AutoRestore()
-	SAS_Saved[PlrName]["AutoRestore"] = not this:GetChecked();
-end
-
-function SASOptions_General_AutoRestoreWarnings()
-	SAS_Saved[PlrName]["NoAutoRestoreWarnings"] = not this:GetChecked();
 end
 
 function SASOptions_Minimap_Show()
@@ -1008,8 +1108,8 @@ end
 --------------------------------------
 -- Warning and Save Frame Functions --
 --------------------------------------
-function SAS_Warning(type, func, value, force)
-	if (SAS_Saved[PlrName]["NoUIWarnings"] and (not force or SAS_Saved[PlrName]["NoAutoRestoreWarnings"])) then
+function SAS_Warning(type, func, value)
+	if (SAS_Saved[PlrName]["NoUIWarnings"]) then
 		func(value);
 	else
 		if (value) then
@@ -1059,7 +1159,6 @@ function SASMinimap_OnEvent()
 		this:RegisterEvent("ACTIONBAR_HIDEGRID");
 		this:RegisterEvent("UNIT_INVENTORY_CHANGED");
 		this:RegisterEvent("BAG_UPDATE");
-		this:RegisterEvent("PLAYER_LOGOUT");
 
 		SASMinimap_PosUpdate();
 
@@ -1069,13 +1168,9 @@ function SASMinimap_OnEvent()
 
 		PlrClass, PlrClass = UnitClass("player");
 
-		if (not SAS_Saved) then
-			SAS_Saved = {};
-		end
-		if (not SAS_Saved[PlrName]) then
-			SAS_Saved[PlrName] = {};
-			SAS_Saved[PlrName]["s"] = {};
-		end
+		-- SAS_Store() owns table creation (and the new-install defaults) now;
+		-- this used to duplicate it inline and skip them.
+		SAS_Store();
 
 		if (SAS_Saved[PlrName]["sets"]) then
 			SAS_UpgradeSets();
@@ -1085,23 +1180,12 @@ function SASMinimap_OnEvent()
 			SASMinimapFrame:Hide();
 		end
 
-		local currentset = SAS_GetCurrentSet();
-		local liveactions = SAS_IterateActions(1);
-
-		if (SAS_Saved[PlrName]["AutoRestore"] and SAS_Saved["BackUp"] and SAS_Saved["BackUp"]["s"][PlrName]) then
-			if (SAS_CompareSet(liveactions, SAS_Saved["BackUp"]["s"][PlrName])) then
-				SAS_Warning("CHANGEDSINCELAST", SAS_RestoreBackUp, nil, 1);
-				return ;
-			end
-		end
-		if (currentset) then
-			if (SAS_CompareSet(liveactions, SAS_Saved[PlrName]["s"][currentset])) then
-				SASDebug(currentset .. " does not appear to be loaded.");
-				SAS_SetCurrentSet();
-			else
-				SASDebug(currentset .. " appears to be loaded, keeping as current set.");
-			end
-		end
+		-- Login restore (SAS_LoginRestore, armed from PLAYER_ENTERING_WORLD
+		-- once the spellbook is ready) is the one place CurrentSet gets
+		-- checked and, if needed, fixed up -- deciding it here too, this
+		-- early and without the spellbook, would race it: whichever ran
+		-- last would win, and an early "doesn't match, clear it" would just
+		-- delete the memory the later, spec-aware restore falls back to.
 	elseif (event == "ACTIONBAR_SHOWGRID") then
 		if (not SAS_SwappingSet) then
 			SAS_IsValidAction = 1;
@@ -1118,12 +1202,6 @@ function SASMinimap_OnEvent()
 				UpdateInventoryDebounced()
 			end)
 		end
-	elseif (event == "PLAYER_LOGOUT") then
-		if (not SAS_Saved["BackUp"]) then
-			SAS_Saved["BackUp"] = {};
-			SAS_Saved["BackUp"]["s"] = {};
-		end
-		SAS_Saved["BackUp"]["s"][PlrName] = SAS_IterateActions();
 	end
 end
 
@@ -2314,19 +2392,6 @@ function SAS_GetCurrentSet()
 	if (SAS_Saved and PlrName) then
 		return SAS_Saved[PlrName]["CurrentSet"];
 	end
-end
-
-function SASBackUp()
-	SAS_BackUp = SAS_IterateActions();
-end
-
-function SAS_RestoreBackUp()
-	-- SAS_SwapSet(set, player). The backup is stored transposed --
-	-- SAS_Saved["BackUp"]["s"][PlrName] -- so passing the arguments the wrong
-	-- way round happened to resolve to the same table. It also meant the
-	-- current-set label was never updated afterwards. Spelled out so the next
-	-- reader is not misled by the coincidence.
-	SAS_SwapSet(PlrName, "BackUp");
 end
 
 function SAS_Console(msg)
