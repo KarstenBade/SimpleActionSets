@@ -157,7 +157,9 @@ function SASFrame_Event()
 		for i = 1, NUMGOSSIPBUTTONS do
 			titleButton = getglobal("GossipTitleButton" .. i)
 
-			if titleButton:IsVisible() then
+			-- A visible gossip button can still have no text; relabelling is
+			-- cosmetic, so never let it error out of the handler.
+			if titleButton:IsVisible() and titleButton:GetText() then
 				local _, _, save_spec, mod = string.find(titleButton:GetText(), "Save (%d+)(..) Specialization")
 				local s = tonumber(save_spec)
 

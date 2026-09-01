@@ -222,17 +222,41 @@ GameTooltip.SetAction = SAS_SetAction;
 -------------------------------------------
 
 SAS_original_GossipTitleButton_OnClick = GossipTitleButton_OnClick
-function SAS_GossipTitleButton_OnClick()
-	if this.type ~= "Available" and this.type ~= "Active" and GossipFrameNpcNameText:GetText() == "Goblin Brainwashing Device" then
-		local action_text = this:GetText()
-		local _,_,save_spec = string.find(action_text,"Save (%d+).. Specialization")
-		local _,_,load_spec = string.find(action_text,"Activate (%d+).. Specialization")
-		if save_spec then
-			SAS_washer_choice = { save = save_spec }
-		elseif load_spec then
-			SAS_washer_choice = { load = load_spec }
-		end
+
+-- Note which specialization the player picked at the Goblin Brainwashing
+-- Device, so the matching action bars can be saved or restored afterwards.
+--
+-- Everything here is bookkeeping: it must never be able to stop the click
+-- reaching the game. It used to run unguarded before the original handler, so
+-- a button with no text -- or any `this` that is not the gossip button, which
+-- is what a controller cursor can hand us -- threw, and the click was
+-- swallowed. The symptom is a gossip option that highlights and does nothing,
+-- i.e. a device you cannot use at all (upstream issue #4).
+local function SAS_NoteWasherChoice()
+	if not this or not this.GetText or not GossipFrameNpcNameText then
+		return;
 	end
+	if this.type == "Available" or this.type == "Active" then
+		return;
+	end
+	if GossipFrameNpcNameText:GetText() ~= "Goblin Brainwashing Device" then
+		return;
+	end
+	local action_text = this:GetText();
+	if not action_text then
+		return;
+	end
+	local _,_,save_spec = string.find(action_text,"Save (%d+).. Specialization")
+	local _,_,load_spec = string.find(action_text,"Activate (%d+).. Specialization")
+	if save_spec then
+		SAS_washer_choice = { save = save_spec }
+	elseif load_spec then
+		SAS_washer_choice = { load = load_spec }
+	end
+end
+
+function SAS_GossipTitleButton_OnClick()
+	pcall(SAS_NoteWasherChoice);
 	SAS_original_GossipTitleButton_OnClick()
 end
 GossipTitleButton_OnClick = SAS_GossipTitleButton_OnClick
