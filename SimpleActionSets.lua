@@ -1973,6 +1973,7 @@ function SAS_PlaceItem(id, link, name, set)
 end
 
 function SAS_CheckItem(name, id, set)
+	local itemLink, bag, slot, inv;
 	if (name) then
 		itemLink, bag, slot, inv = SAS_FindItem(name);
 		itemLink = SAS_FindLink(itemLink)
@@ -1980,15 +1981,21 @@ function SAS_CheckItem(name, id, set)
 			itemLink = SAS_CheckItemDBs(name);
 		end
 		if (itemLink and itemLink ~= "?" and itemLink ~= "1") then
-			local slot = math.mod(id, 12);
-			local bar = (id - slot) / 12;
+			-- Slots run 1..12 within a bar, so a 12th slot is mod 0 and has to
+			-- be counted back into the bar below. The old maths sent every
+			-- 12th slot to [bar + 1][0], which is not a slot at all -- it is
+			-- the flag saying whether that bar is enabled. The visible effect
+			-- was that items in slots 12, 24, 36 ... never had their link
+			-- resolved, so they could not be placed again on restore.
+			local barSlot = math.mod(id - 1, 12) + 1;
+			local bar = (id - barSlot) / 12;
 			if (SAS_Saved[PlrName]["s"][set]) then
-				local action = SAS_Saved[PlrName]["s"][set][bar][slot];
+				local action = SAS_Saved[PlrName]["s"][set][bar][barSlot];
 				local iname, ilink = SAS_ParseActionInfo(action, 1, 4);
 				if (iname) then
 					if (iname == name and ilink and ilink == "?") then
 						SASDebug("Updating item in action #" .. id .. " in set " .. set .. " with itemLink.");
-						SAS_Saved[PlrName]["s"][set][bar][slot] = SAS_IncActionInfo(action, itemLink, 4);
+						SAS_Saved[PlrName]["s"][set][bar][barSlot] = SAS_IncActionInfo(action, itemLink, 4);
 					else
 						SASDebug("|wAttempted to update itemLink in action #" .. id .. " but names are wrong?");
 					end
