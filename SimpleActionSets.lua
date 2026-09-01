@@ -2259,7 +2259,12 @@ local function actionComp(a, b)
 		local B = { SAS_ParseActionInfo(b) };
 		for k, v in A do
 			if (k ~= 4 and (not B[k] or v ~= B[k])) then
-				SASDebug(k .. " " .. v .. " does not == " .. B[k]);
+				-- tostring: this branch is entered precisely WHEN B[k] is nil,
+				-- and the message is built before SASDebug decides whether to
+				-- print it -- so the concatenation ran even with debug off.
+				-- Reached at login through SAS_CompareSet, which is what made
+				-- it break the whole session rather than one comparison.
+				SASDebug(tostring(k) .. " " .. tostring(v) .. " does not == " .. tostring(B[k]));
 				return 1;
 			end
 		end
