@@ -137,6 +137,13 @@ function SASFrame_Event()
 		if not SAS_Saved then
 			SAS_Saved = {}
 		end
+		-- The spellbook index has to be dropped whenever the spellbook can
+		-- have changed -- training, a talent swap, logging in. Registered here
+		-- rather than in the XML so the two stay together with the cache.
+		this:RegisterEvent("SPELLS_CHANGED");
+		this:RegisterEvent("LEARNED_SPELL_IN_TAB");
+	elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" then
+		SAS_InvalidateSpellCache();
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		this:SetOwner(WorldFrame, "ANCHOR_NONE")
 	elseif event == "GOSSIP_SHOW" and GossipFrameNpcNameText:GetText() == "Goblin Brainwashing Device" then
@@ -1564,8 +1571,74 @@ function SAS_FindItem(item)
 	end
 end
 
+-- Spellbook index, rebuilt on demand.
+--
+-- SAS_FindSpell used to walk the whole spellbook from index 1 on every call,
+-- and applying a set calls it twice for every occupied slot -- once to see
+-- what is already there, once to find what should be. On a level 60 character
+-- that is tens of thousands of GetSpellName calls inside a single frame, which
+-- is the hitch the addon's own help text warns about and the most likely
+-- reason a spec swap can take the client down.
+--
+-- One pass builds the same answers as a lookup table. The contract of
+-- SAS_FindSpell is unchanged: exact index for a known rank, `nil, highest`
+-- when the name is known but that rank is not, nothing at all when the name is
+-- unknown.
+local SAS_SpellCache;
+
+function SAS_InvalidateSpellCache()
+	SAS_SpellCache = nil;
+end
+
+local function SAS_SpellIndex()
+	if (SAS_SpellCache) then
+		return SAS_SpellCache;
+	end
+	local index = {};
+	local i = 1;
+	local spellName, spellRank = GetSpellName(i, BOOKTYPE_SPELL);
+	while spellName do
+		local entry = index[spellName];
+		if (not entry) then
+			entry = { first = i, ranks = {} };
+			index[spellName] = entry;
+		end
+		-- Ranks ascend through the book, so the last match is the highest.
+		entry.highest = i;
+		local r = tRank(spellRank);
+		if (r) then
+			entry.ranks[r] = i;
+		end
+		i = i + 1;
+		spellName, spellRank = GetSpellName(i, BOOKTYPE_SPELL);
+	end
+	SAS_SpellCache = index;
+	return index;
+end
+
 function SAS_FindSpell(spell, rank)
-	-- Iterate over spells the player has and return location
+	-- Look up a spell the player has and return its spellbook index.
+	if (not spell) then
+		return ;
+	end
+	local entry = SAS_SpellIndex()[spell];
+	if (not entry) then
+		return nil, nil;
+	end
+	if (rank) then
+		local exact = entry.ranks[tonumber(rank)];
+		if (exact) then
+			return exact;
+		end
+		-- Known spell, unknown rank: the caller falls back to the highest.
+		return nil, entry.highest;
+	end
+	return entry.first;
+end
+
+function SAS_FindSpell_Uncached(spell, rank)
+	-- The original linear scan, kept as the reference the tests compare
+	-- against so the index can never silently drift from it.
 	if (not spell) then
 		return ;
 	end
